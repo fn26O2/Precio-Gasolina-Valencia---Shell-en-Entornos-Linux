@@ -1,3 +1,9 @@
 !.gitkeep
 *.tmp
 .DS_Store
+datasets/*.json
+!datasets/ejemplo_*.json
+informes/*.txt
+informes/*.html
+log.txt
+errores.log
