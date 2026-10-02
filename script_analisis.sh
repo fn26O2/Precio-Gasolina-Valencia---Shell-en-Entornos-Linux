@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# lib.sh - variables y funciones comunes del proyecto
-# Se carga desde script_analisis.sh con: source lib.sh
 
 # --- Rutas (siempre relativas a la carpeta del proyecto) ---
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,8 +30,14 @@ _log() {
 }
 
 log_info()  { _log "INFO"  "$@"; }
-log_warn()  { _log "WARN"  "$@"; }
 log_error() {
     _log "ERROR" "$@"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$ERR_FILE"
+}
+
+# ===== PABLO FUNCIÓN DESCARGAR =====
+
+function descargar () {
+    log_info "Iniciando descarga"
+    curl -s -H "Accept: application/json" -o "$JSON_RAW" "$URL_CARBURANTES"
 }
