@@ -16,7 +16,8 @@ ERR_FILE="$BASE_DIR/errores.log"
 HOY="$(date +%Y%m%d)"
 
 # --- Dataset ---
-URL_CARBURANTES="https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/"
+#URL_CARBURANTES="https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/"
+URL_CARBURANTES="${URL_CARBURANTES:-https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/}"
 JSON_RAW="$DATASETS_DIR/carburantes_${HOY}.json"
 JSON_LIMPIO="$DATASETS_DIR/carburantes_${HOY}_limpio.json"
 
@@ -73,9 +74,100 @@ descargar() {
     log_info "Descarga completada"
 }
 
-validar(){
-    
+# ===== PABLO FUNCIÓN VALIDAR =====
+validar() {
+    local fichero="$1"
+
+    log_info "Iniciando validación"
+
+    # 1. ¿Está vacío?
+    if [ ! -s "$fichero" ]; then
+        log_error "Validación fallida: el fichero descargado está vacío"
+        rm -f "$fichero"
+        return 1
+    fi
+
+    # 2. ¿Es un JSON válido? (detecta descargas cortadas y páginas HTML)
+    if ! jq empty "$fichero" 2>/dev/null; then
+        log_error "Validación fallida: el fichero no es un JSON válido (¿truncado o página de error?)"
+        rm -f "$fichero"
+        return 1
+    fi
+
+    # 3. ¿Tiene la estructura esperada? (ListaEESSPrecio es una lista con estaciones)
+    if ! jq -e '.ListaEESSPrecio | type == "array" and length > 0' "$fichero" > /dev/null; then
+        log_error "Validación fallida: falta ListaEESSPrecio o está vacía (estructura errónea)"
+        rm -f "$fichero"
+        return 1
+    fi
+
+    # 4. Todo correcto: el fichero pasa a tener su nombre definitivo
+    mv "$fichero" "$JSON_RAW"
+    log_info "Validación correcta"
+}
+
+
+# ===== PABLO FUNCIÓN LIMPIAR =====
+limpiar() {
+    local tmp="$JSON_LIMPIO.tmp"
+    local resumen
+
+    log_info "Iniciando limpieza"
+
+    if ! jq '
+        def num: if . == null or . == "" then null
+                 else (sub(","; ".") | tonumber?) // null end;
+
+        def rango: if . == null then null
+                   elif . < 0.80 or . > 3 then null
+                   else . end;
+
+        (.ListaEESSPrecio | length) as $total
+
+        | ([.ListaEESSPrecio[]
+            | ."Precio Gasolina 95 E5", ."Precio Gasoleo A"
+            | num
+            | select(. != null and (. < 0.80 or . > 3))]
+           | length) as $fuera_rango
+
+        | (.ListaEESSPrecio
+           | map({
+               id:           .IDEESS,
+               provincia_id: .IDProvincia,
+               marca:        (."Rótulo" | gsub("^\\s+|\\s+$"; "") | ascii_upcase),
+               municipio:    .Municipio,
+               direccion:    ."Dirección",
+               horario:      .Horario,
+               lat:          (.Latitud | num),
+               lon:          (."Longitud (WGS84)" | num),
+               gasolina95:   (."Precio Gasolina 95 E5" | num | rango),
+               gasoleo:      (."Precio Gasoleo A" | num | rango)
+             })
+           | unique_by(.id)) as $estaciones
+
+        | {
+            fecha_datos: .Fecha,
+            calidad: {
+              descargadas:            $total,
+              duplicadas:             ($total - ($estaciones | length)),
+              precios_fuera_de_rango: $fuera_rango,
+              validas:                ($estaciones | length)
+            },
+            estaciones: $estaciones
+          }
+    ' "$JSON_RAW" > "$tmp"; then
+        log_error "Limpieza fallida: jq no ha podido procesar $JSON_RAW"
+        rm -f "$tmp"
+        return 1
+    fi
+
+    mv "$tmp" "$JSON_LIMPIO"
+
+    resumen="$(jq -r '.calidad | "\(.descargadas) descargadas, \(.duplicadas) duplicadas, \(.precios_fuera_de_rango) precios fuera de rango, \(.validas) válidas"' "$JSON_LIMPIO")"
+    log_info "Limpieza completada: $resumen"
 }
 
 
 descargar
+validar "$JSON_RAW.tmp"
+limpiar
