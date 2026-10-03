@@ -23,7 +23,7 @@ JSON_LIMPIO="$DATASETS_DIR/carburantes_${HOY}_limpio.json"
 
 # --- Parámetros ---
 PROVINCIA_ID="46"      # Valencia
-DIAS_RETENCION=7       # días que se guardan datasets e informes
+DIAS_RETENCION=7       # días que se conservan los datasets
 TIMEOUT_DESCARGA="${TIMEOUT_DESCARGA:-120}"   # segundos máximos de descarga
 
 # --- Funciones de log ---
@@ -51,6 +51,8 @@ descargar() {
     local codigo_curl=0
 
     log_info "Iniciando descarga"
+
+    mkdir -p "$DATASETS_DIR"
 
     curl -fsS \
         --connect-timeout 15 \
@@ -101,7 +103,14 @@ validar() {
         return 1
     fi
 
-    # 4. Todo correcto: el fichero pasa a tener su nombre definitivo
+    # 4. ¿Están los campos que usa la limpieza? (detecta cambios de formato de la API)
+    if ! jq -e '.ListaEESSPrecio[0] | has("IDEESS") and has("IDProvincia") and has("Rótulo") and has("Precio Gasolina 95 E5") and has("Precio Gasoleo A")' "$fichero" > /dev/null; then
+        log_error "Validación fallida: faltan campos esperados en las estaciones (¿ha cambiado el formato de la API?)"
+        rm -f "$fichero"
+        return 1
+    fi
+
+    # 5. Todo correcto: el fichero pasa a tener su nombre definitivo
     mv "$fichero" "$JSON_RAW"
     log_info "Validación correcta"
 }
