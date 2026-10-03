@@ -20,6 +20,7 @@ HOY="$(date +%Y%m%d)"
 URL_CARBURANTES="${URL_CARBURANTES:-https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/}"
 JSON_RAW="$DATASETS_DIR/carburantes_${HOY}.json"
 JSON_LIMPIO="$DATASETS_DIR/carburantes_${HOY}_limpio.json"
+JSON_RESUMEN="$DATASETS_DIR/carburantes_${HOY}_resumen.json"
 
 # --- Informes (misma marca de tiempo que el dataset) ---
 INFORME_TXT="$INFORMES_DIR/informe_${HOY}.txt"
@@ -205,35 +206,53 @@ borrar_antiguos() {
 
 
 # ===== PARTE ÁLVARO =====
-# Entrada común: "$JSON_LIMPIO" (formato acordado: fecha_datos, calidad, estaciones[]).
-# Cada función debe registrar su inicio/fin con log_info y sus fallos con log_error + return 1.
- 
-# ----- ÁLVARO 1: EXTRAER -----
-# - Filtrar las estaciones de Valencia: .provincia_id == $PROVINCIA_ID (usar jq --arg)
-# - Conteo de estaciones de Valencia
-# - Métricas de gasolina95 y gasoleo: mínimo, máximo y media (ignorando los null)
-# - Algún filtrado de interés (p. ej. las 5 más baratas, por municipio o por marca)
+# Entrada: "$JSON_LIMPIO" (fecha_datos, calidad, estaciones[]) con las gasolineras de toda España.
+# Precios en número o null (null = falta o anómalo -> ignorar en las cuentas).
+# Combustibles analizados: gasolina95 y gasoleo (la 98 y el diésel premium se descartan a propósito).
+# Cada función: log_info al empezar y al acabar; si falla, log_error + return 1.
+
+# ----- EXTRAER -----
+# Calcula los datos y los guarda en "$JSON_RESUMEN" (de ahí leen los dos informes).
+# - Fecha: .fecha_datos
+# - Valencia (.provincia_id == $PROVINCIA_ID, usar jq --arg):
+#     nº de gasolineras; mínimo, media y máximo de gasolina95 y gasoleo
+# - España: nº de gasolineras; media de gasolina95 y gasoleo
+# - Comparación: diferencia Valencia - España en €/l y en %
+# - Evolución semanal: recorrer datasets/carburantes_*_limpio.json y sacar por día
+#     las medias de Valencia y España de los dos combustibles
+#     variación respecto a ayer (solo Valencia), en €/l y %
+#     variación en la semana (Valencia y España), hoy vs el día más antiguo, en €/l y %
+#     si solo hay 1 día: indicarlo y seguir sin fallar
+# - Top 5 más baratas de Valencia en gasolina95 y en gasoleo (marca, municipio, dirección, precio)
+# - Media por marca en Valencia (solo marcas con 5 o más gasolineras)
+# - Nota sobre los datos: copiar .calidad y contar las gasolineras de Valencia sin precio
 extraer() {
-    log_info "Extracción pendiente (Álvaro)"
+    log_info "Extracción pendiente"
 }
- 
-# ----- ÁLVARO 2: INFORME TXT -----
-# - Escribir "$INFORME_TXT" con los datos de extraer()
+
+# ----- INFORME TXT -----
 # - mkdir -p "$INFORMES_DIR" antes de escribir
+# - Escribir "$INFORME_TXT" leyendo "$JSON_RESUMEN"
+# - Orden: cabecera (título y fechas) -> 1. precios en Valencia -> 2. Valencia frente a España
+#          -> 3. evolución de la semana -> 4. dónde repostar más barato
+#          -> 5. precio medio por marca -> 6. nota sobre los datos
+# - Precios con 3 decimales
 generar_informe_txt() {
-    log_info "Informe TXT pendiente (Álvaro)"
+    log_info "Informe TXT pendiente"
 }
- 
-# ----- ÁLVARO 3: INFORME HTML -----
-# - Escribir "$INFORME_HTML" con la misma información que el TXT
-# - Estructura mínima: título, fecha, resultados
+
+# ----- INFORME HTML -----
+# - Escribir "$INFORME_HTML" leyendo "$JSON_RESUMEN"
+# - Mismos apartados y mismo orden que el TXT (título, fecha y resultados)
+# - Tablas para todos los apartados con datos; ↑ en rojo y ↓ en verde
 generar_informe_html() {
-    log_info "Informe HTML pendiente (Álvaro)"
+    log_info "Informe HTML pendiente"
 }
 
+# ===== FIN PARTE ÁLVARO =====
 
 
-
+# ===== EJECUCIÓN =====
 log_info "INICIO ejecución"
 
 descargar
