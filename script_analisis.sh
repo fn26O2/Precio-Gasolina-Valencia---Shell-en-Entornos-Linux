@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --- Entorno fijo (cron no carga el de la terminal) ---
+# --- Entorno fijo (porque cron no carga el de la terminal) ---
 export PATH="/usr/local/bin:/usr/bin:/bin"
 export LC_ALL=C.UTF-8
 
@@ -20,6 +20,10 @@ HOY="$(date +%Y%m%d)"
 URL_CARBURANTES="${URL_CARBURANTES:-https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/}"
 JSON_RAW="$DATASETS_DIR/carburantes_${HOY}.json"
 JSON_LIMPIO="$DATASETS_DIR/carburantes_${HOY}_limpio.json"
+
+# --- Informes (misma marca de tiempo que el dataset) ---
+INFORME_TXT="$INFORMES_DIR/informe_${HOY}.txt"
+INFORME_HTML="$INFORMES_DIR/informe_${HOY}.html"
 
 # --- Parámetros ---
 PROVINCIA_ID="46"      # Valencia
@@ -44,7 +48,9 @@ log_error() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$ERR_FILE"
 }
 
-# ===== PABLO FUNCIÓN DESCARGAR =====
+# ===== PARTE PABLO =====
+
+# ----- DESCARGAR -----
 
 descargar() {
     local tmp="$JSON_RAW.tmp"
@@ -76,7 +82,7 @@ descargar() {
     log_info "Descarga completada"
 }
 
-# ===== PABLO FUNCIÓN VALIDAR =====
+# ----- VALIDAR -----
 validar() {
     local fichero="$1"
 
@@ -116,7 +122,8 @@ validar() {
 }
 
 
-# ===== PABLO FUNCIÓN LIMPIAR =====
+
+# ----- LIMPIAR -----
 limpiar() {
     local tmp="$JSON_LIMPIO.tmp"
     local resumen
@@ -176,7 +183,65 @@ limpiar() {
     log_info "Limpieza completada: $resumen"
 }
 
+# ----- BORRAR ANTIGUOS -----
+borrar_antiguos() {
+    local borrados
+
+    log_info "Buscando datasets con más de $DIAS_RETENCION días"
+
+    if ! borrados="$(find "$DATASETS_DIR" -maxdepth 1 -type f -name 'carburantes_*.json' -mtime +"$DIAS_RETENCION" -print -delete)"; then
+        log_error "Borrado de antiguos fallido: no se ha podido revisar $DATASETS_DIR"
+        return 1
+    fi
+
+    if [ -z "$borrados" ]; then
+        log_info "No hay datasets antiguos que borrar"
+    else
+        log_info "Borrados $(echo "$borrados" | wc -l) datasets antiguos: $(echo "$borrados" | xargs -n1 basename | tr '\n' ' ')"
+    fi
+}
+
+
+
+
+# ===== PARTE ÁLVARO =====
+# Entrada común: "$JSON_LIMPIO" (formato acordado: fecha_datos, calidad, estaciones[]).
+# Cada función debe registrar su inicio/fin con log_info y sus fallos con log_error + return 1.
+ 
+# ----- ÁLVARO 1: EXTRAER -----
+# - Filtrar las estaciones de Valencia: .provincia_id == $PROVINCIA_ID (usar jq --arg)
+# - Conteo de estaciones de Valencia
+# - Métricas de gasolina95 y gasoleo: mínimo, máximo y media (ignorando los null)
+# - Algún filtrado de interés (p. ej. las 5 más baratas, por municipio o por marca)
+extraer() {
+    log_info "Extracción pendiente (Álvaro)"
+}
+ 
+# ----- ÁLVARO 2: INFORME TXT -----
+# - Escribir "$INFORME_TXT" con los datos de extraer()
+# - mkdir -p "$INFORMES_DIR" antes de escribir
+generar_informe_txt() {
+    log_info "Informe TXT pendiente (Álvaro)"
+}
+ 
+# ----- ÁLVARO 3: INFORME HTML -----
+# - Escribir "$INFORME_HTML" con la misma información que el TXT
+# - Estructura mínima: título, fecha, resultados
+generar_informe_html() {
+    log_info "Informe HTML pendiente (Álvaro)"
+}
+
+
+
+
+log_info "INICIO ejecución"
 
 descargar
 validar "$JSON_RAW.tmp"
 limpiar
+extraer
+generar_informe_txt
+generar_informe_html
+borrar_antiguos
+
+log_info "FIN correcto"
