@@ -8,3 +8,4 @@ informes/*.html
 log.txt
 errores.log
 pruebas/
+cron.log
