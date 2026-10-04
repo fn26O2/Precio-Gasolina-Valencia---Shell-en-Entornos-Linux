@@ -206,47 +206,396 @@ borrar_antiguos() {
 
 
 # ===== PARTE ÁLVARO =====
-# Entrada: "$JSON_LIMPIO" (fecha_datos, calidad, estaciones[]) con las gasolineras de toda España.
-# Precios en número o null (null = falta o anómalo -> ignorar en las cuentas).
-# Combustibles analizados: gasolina95 y gasoleo (la 98 y el diésel premium se descartan a propósito).
-# Cada función: log_info al empezar y al acabar; si falla, log_error + return 1.
 
 # ----- EXTRAER -----
-# Calcula los datos y los guarda en "$JSON_RESUMEN" (de ahí leen los dos informes).
-# - Fecha: .fecha_datos
-# - Valencia (.provincia_id == $PROVINCIA_ID, usar jq --arg):
-#     nº de gasolineras; mínimo, media y máximo de gasolina95 y gasoleo
-# - España: nº de gasolineras; media de gasolina95 y gasoleo
-# - Comparación: diferencia Valencia - España en €/l y en %
-# - Evolución semanal: recorrer datasets/carburantes_*_limpio.json y sacar por día
-#     las medias de Valencia y España de los dos combustibles
-#     variación respecto a ayer (solo Valencia), en €/l y %
-#     variación en la semana (Valencia y España), hoy vs el día más antiguo, en €/l y %
-#     si solo hay 1 día: indicarlo y seguir sin fallar
-# - Top 5 más baratas de Valencia en gasolina95 y en gasoleo (marca, municipio, dirección, precio)
-# - Media por marca en Valencia (solo marcas con 5 o más gasolineras)
-# - Nota sobre los datos: copiar .calidad y contar las gasolineras de Valencia sin precio
 extraer() {
-    log_info "Extracción pendiente"
+    log_info "INICIO: Extracción de métricas desde $JSON_LIMPIO..."
+
+    # Validación de existencia del archivo de entrada
+    if [ ! -f "$JSON_LIMPIO" ]; then
+        log_error "Error: El archivo limpio de entrada ($JSON_LIMPIO) no existe."
+        return 1
+    fi
+
+    # Configuración por defecto de PROVINCIA_ID si no está definida globalmente
+    local prov_id="${PROVINCIA_ID:-46}"
+
+    # 1. Obtener la lista cronológica de datasets acumulados para la evolución semanal
+    local lista_datasets
+    lista_datasets=($(ls -1 "$DATASETS_DIR"/carburantes_*_limpio.json 2>/dev/null | sort))
+    local num_dias=${#lista_datasets[@]}
+
+    log_info "Histórico detectado: $num_dias día(s) acumulado(s)."
+
+    # 2. Procesar el histórico para calcular la serie temporal mediante jq
+    local evol_json="[]"
+    if [ $num_dias -gt 0 ]; then
+        evol_json=$(jq -s --arg prov "$prov_id" '
+            map({
+                fecha: .fecha_datos,
+                val_g95: ([.estaciones[] | select(.provincia_id == $prov and .gasolina95 != null) | .gasolina95] | if length > 0 then (add/length) else null end),
+                val_gasoleo: ([.estaciones[] | select(.provincia_id == $prov and .gasoleo != null) | .gasoleo] | if length > 0 then (add/length) else null end),
+                esp_g95: ([.estaciones[] | .gasolina95 | select(. != null)] | if length > 0 then (add/length) else null end),
+                esp_gasoleo: ([.estaciones[] | .gasoleo | select(. != null)] | if length > 0 then (add/length) else null end)
+            })
+        ' "${lista_datasets[@]}")
+    fi
+
+    # 3. Extraer métricas consolidadas y generar $JSON_RESUMEN
+    jq --arg prov "$prov_id" --argjson evol "$evol_json" '
+        # Filtrado base de estaciones
+        (.estaciones | map(select(.provincia_id == $prov))) as $valencia |
+        .estaciones as $espana |
+        
+        # Precios de Valencia
+        ([$valencia[] | .gasolina95 | select(. != null)]) as $val_g95_list |
+        ([$valencia[] | .gasoleo | select(. != null)]) as $val_gasoleo_list |
+        
+        # Precios de España
+        ([$espana[] | .gasolina95 | select(. != null)]) as $esp_g95_list |
+        ([$espana[] | .gasoleo | select(. != null)]) as $esp_gasoleo_list |
+
+        # Cálculo de Medias
+        (($val_g95_list | if length > 0 then (add/length) else 0 end)) as $med_val_g95 |
+        (($val_gasoleo_list | if length > 0 then (add/length) else 0 end)) as $med_val_gasoleo |
+        (($esp_g95_list | if length > 0 then (add/length) else 0 end)) as $med_esp_g95 |
+        (($esp_gasoleo_list | if length > 0 then (add/length) else 0 end)) as $med_esp_gasoleo |
+
+        {
+            fecha_datos: .fecha_datos,
+            calidad: .calidad,
+            valencia: {
+                total_estaciones: ($valencia | length),
+                sin_precio: ($valencia | map(select(.gasolina95 == null and .gasoleo == null)) | length),
+                gasolina95: {
+                    min: ($val_g95_list | if length > 0 then min else 0 end),
+                    media: $med_val_g95,
+                    max: ($val_g95_list | if length > 0 then max else 0 end)
+                },
+                gasoleo: {
+                    min: ($val_gasoleo_list | if length > 0 then min else 0 end),
+                    media: $med_val_gasoleo,
+                    max: ($val_gasoleo_list | if length > 0 then max else 0 end)
+                }
+            },
+            espana: {
+                total_estaciones: ($espana | length),
+                gasolina95_media: $med_esp_g95,
+                gasoleo_medio: $med_esp_gasoleo
+            },
+            comparacion: {
+                gasolina95: {
+                    diff_eur: ($med_val_g95 - $med_esp_g95),
+                    diff_pct: (if $med_esp_g95 > 0 then (($med_val_g95 - $med_esp_g95) / $med_esp_g95 * 100) else 0 end)
+                },
+                gasoleo: {
+                    diff_eur: ($med_val_gasoleo - $med_esp_gasoleo),
+                    diff_pct: (if $med_esp_gasoleo > 0 then (($med_val_gasoleo - $med_esp_gasoleo) / $med_esp_gasoleo * 100) else 0 end)
+                }
+            },
+            evolucion_semanal: $evol,
+            top5_baratas: {
+                gasolina95: ([$valencia[] | select(.gasolina95 != null)] | sort_by(.gasolina95) | .[0:5] | map({rotulo, municipio, direccion, precio: .gasolina95})),
+                gasoleo: ([$valencia[] | select(.gasoleo != null)] | sort_by(.gasoleo) | .[0:5] | map({rotulo, municipio, direccion, precio: .gasoleo}))
+            },
+            marcas_medies_valencia: (
+                $valencia 
+                | group_by(.rotulo) 
+                | map(select(length >= 5) | {
+                    marca: .[0].rotulo,
+                    total_estaciones: length,
+                    media_g95: ([.[].gasolina95 | select(. != null)] | if length > 0 then (add/length) else 0 end),
+                    media_gasoleo: ([.[].gasoleo | select(. != null)] | if length > 0 then (add/length) else 0 end)
+                })
+                | sort_by(.marca)
+            )
+        }
+    ' "$JSON_LIMPIO" > "$JSON_RESUMEN"
+
+    if [ $? -ne 0 ] || [ ! -s "$JSON_RESUMEN" ]; then
+        log_error "Fallo al generar el archivo JSON de resumen ($JSON_RESUMEN)."
+        return 1
+    fi
+
+    log_info "FIN: Extracción completada con éxito. Guardado en $JSON_RESUMEN."
+    return 0
 }
 
 # ----- INFORME TXT -----
-# - mkdir -p "$INFORMES_DIR" antes de escribir
-# - Escribir "$INFORME_TXT" leyendo "$JSON_RESUMEN"
-# - Orden: cabecera (título y fechas) -> 1. precios en Valencia -> 2. Valencia frente a España
-#          -> 3. evolución de la semana -> 4. dónde repostar más barato
-#          -> 5. precio medio por marca -> 6. nota sobre los datos
-# - Precios con 3 decimales
 generar_informe_txt() {
-    log_info "Informe TXT pendiente"
+    log_info "INICIO: Generando informe TXT en $INFORME_TXT..."
+
+    if [ ! -f "$JSON_RESUMEN" ]; then
+        log_error "Error: No se encuentra el JSON de resumen ($JSON_RESUMEN)."
+        return 1
+    fi
+
+    local dir_informes
+    dir_informes=$(dirname "$INFORME_TXT")
+    mkdir -p "$dir_informes"
+
+    # Extracción de valores con jq para la plantilla de texto
+    local fecha_datos=$(jq -r '.fecha_datos' "$JSON_RESUMEN")
+    local val_total=$(jq -r '.valencia.total_estaciones' "$JSON_RESUMEN")
+    local val_sin_precio=$(jq -r '.valencia.sin_precio' "$JSON_RESUMEN")
+    local esp_total=$(jq -r '.espana.total_estaciones' "$JSON_RESUMEN")
+
+    local v_g95_min=$(jq -r '.valencia.gasolina95.min' "$JSON_RESUMEN")
+    local v_g95_med=$(jq -r '.valencia.gasolina95.media' "$JSON_RESUMEN")
+    local v_g95_max=$(jq -r '.valencia.gasolina95.max' "$JSON_RESUMEN")
+
+    local v_gas_min=$(jq -r '.valencia.gasoleo.min' "$JSON_RESUMEN")
+    local v_gas_med=$(jq -r '.valencia.gasoleo.media' "$JSON_RESUMEN")
+    local v_gas_max=$(jq -r '.valencia.gasoleo.max' "$JSON_RESUMEN")
+
+    local e_g95_med=$(jq -r '.espana.gasolina95_media' "$JSON_RESUMEN")
+    local e_gas_med=$(jq -r '.espana.gasoleo_medio' "$JSON_RESUMEN")
+
+    local diff_g95_eur=$(jq -r '.comparacion.gasolina95.diff_eur' "$JSON_RESUMEN")
+    local diff_g95_pct=$(jq -r '.comparacion.gasolina95.diff_pct' "$JSON_RESUMEN")
+    local diff_gas_eur=$(jq -r '.comparacion.gasoleo.diff_eur' "$JSON_RESUMEN")
+    local diff_gas_pct=$(jq -r '.comparacion.gasoleo.diff_pct' "$JSON_RESUMEN")
+
+    local calidad_nota=$(jq -r '.calidad // "Sin observaciones de calidad"' "$JSON_RESUMEN")
+
+    cat <<EOF > "$INFORME_TXT"
+================================================================================
+INFORME MONITOREO DE CARBURANTES - PROVINCIA DE VALENCIA
+Fecha de Datos: $fecha_datos | Fecha Emisión: $FECHA_HUMANA
+================================================================================
+
+1. PRECIOS EN VALENCIA ($val_total estaciones)
+--------------------------------------------------------------------------------
+   * Gasolina 95:
+     - Mínimo: $(printf "%.3f" $v_g95_min) €/L
+     - Medio:  $(printf "%.3f" $v_g95_med) €/L
+     - Máximo: $(printf "%.3f" $v_g95_max) €/L
+   * Diésel (Gasóleo A):
+     - Mínimo: $(printf "%.3f" $v_gas_min) €/L
+     - Medio:  $(printf "%.3f" $v_gas_med) €/L
+     - Máximo: $(printf "%.3f" $v_gas_max) €/L
+
+2. VALENCIA FRENTE A ESPAÑA ($esp_total estaciones nacionales)
+--------------------------------------------------------------------------------
+   * Gasolina 95:
+     - Media Valencia: $(printf "%.3f" $v_g95_med) €/L
+     - Media España:   $(printf "%.3f" $e_g95_med) €/L
+     - Diferencia:     $(printf "%+.3f" $diff_g95_eur) €/L ($(printf "%+.2f" $diff_g95_pct)%)
+   * Diésel:
+     - Media Valencia: $(printf "%.3f" $v_gas_med) €/L
+     - Media España:   $(printf "%.3f" $e_gas_med) €/L
+     - Diferencia:     $(printf "%+.3f" $diff_gas_eur) €/L ($(printf "%+.2f" $diff_gas_pct)%)
+
+3. EVOLUCIÓN DE LA SEMANA
+--------------------------------------------------------------------------------
+$(jq -r '
+    if (.evolucion_semanal | length) <= 1 then
+        "   [!] Nota: Solo se dispone de 1 día registrado. Se requieren más datos para mostrar la tendencia semanal."
+    else
+        .evolucion_semanal[] | "   - Fecha: \(.fecha) | Val G95: \(.val_g95 | if . then (sprintf("%.3f"; .)) else "N/A" end) €/L | Val Diésel: \(.val_gasoleo | if . then (sprintf("%.3f"; .)) else "N/A" end) €/L"
+    end
+' "$JSON_RESUMEN")
+
+4. DÓNDE REPOSTAR MÁS BARATO EN VALENCIA
+--------------------------------------------------------------------------------
+   TOP 5 GASOLINA 95:
+$(jq -r '.top5_baratas.gasolina95[] | "   * \(.rotulo) (\(.municipio)) - \(.direccion): \(.precio | sprintf("%.3f")) €/L"' "$JSON_RESUMEN")
+
+   TOP 5 DIÉSEL:
+$(jq -r '.top5_baratas.gasoleo[] | "   * \(.rotulo) (\(.municipio)) - \(.direccion): \(.precio | sprintf("%.3f")) €/L"' "$JSON_RESUMEN")
+
+5. PRECIO MEDIO POR MARCA EN VALENCIA (mínimo 5 estaciones)
+--------------------------------------------------------------------------------
+$(jq -r '.marcas_medies_valencia[] | "   * \(.marca) (\(.total_estaciones) est.): G95: \(.media_g95 | sprintf("%.3f")) €/L | Diésel: \(.media_gasoleo | sprintf("%.3f")) €/L"' "$JSON_RESUMEN")
+
+6. NOTA SOBRE LOS DATOS Y CALIDAD
+--------------------------------------------------------------------------------
+   - Calidad indicada por origen: $calidad_nota
+   - Estaciones registradas en Valencia sin precio publicado: $val_sin_precio
+================================================================================
+EOF
+
+    log_info "FIN: Informe TXT generado correctamente en $INFORME_TXT."
+    return 0
 }
 
 # ----- INFORME HTML -----
-# - Escribir "$INFORME_HTML" leyendo "$JSON_RESUMEN"
-# - Mismos apartados y mismo orden que el TXT (título, fecha y resultados)
-# - Tablas para todos los apartados con datos; ↑ en rojo y ↓ en verde
 generar_informe_html() {
-    log_info "Informe HTML pendiente"
+    log_info "INICIO: Generando informe HTML en $INFORME_HTML..."
+
+    if [ ! -f "$JSON_RESUMEN" ]; then
+        log_error "Error: No se encuentra el JSON de resumen ($JSON_RESUMEN)."
+        return 1
+    fi
+
+    local dir_informes
+    dir_informes=$(dirname "$INFORME_HTML")
+    mkdir -p "$dir_informes"
+
+    # Variables de resumen para HTML
+    local fecha_datos=$(jq -r '.fecha_datos' "$JSON_RESUMEN")
+    local val_total=$(jq -r '.valencia.total_estaciones' "$JSON_RESUMEN")
+    local val_sin_precio=$(jq -r '.valencia.sin_precio' "$JSON_RESUMEN")
+    local esp_total=$(jq -r '.espana.total_estaciones' "$JSON_RESUMEN")
+
+    local v_g95_med=$(jq -r '.valencia.gasolina95.media' "$JSON_RESUMEN")
+    local v_gas_med=$(jq -r '.valencia.gasoleo.media' "$JSON_RESUMEN")
+    local e_g95_med=$(jq -r '.espana.gasolina95_media' "$JSON_RESUMEN")
+    local e_gas_med=$(jq -r '.espana.gasoleo_medio' "$JSON_RESUMEN")
+
+    local diff_g95_eur=$(jq -r '.comparacion.gasolina95.diff_eur' "$JSON_RESUMEN")
+    local diff_gas_eur=$(jq -r '.comparacion.gasoleo.diff_eur' "$JSON_RESUMEN")
+
+    local calidad_nota=$(jq -r '.calidad // "Sin observaciones de calidad"' "$JSON_RESUMEN")
+
+    cat <<EOF > "$INFORME_HTML"
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Informe de Mercado de Carburantes - Valencia</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 25px; }
+        .container { max-width: 950px; margin: 0 auto; }
+        .header { background: #0056b3; color: white; padding: 20px 25px; border-radius: 8px; margin-bottom: 20px; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .header p { margin: 5px 0 0 0; opacity: 0.9; font-size: 14px; }
+        .section { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .section h2 { margin-top: 0; font-size: 18px; color: #0056b3; border-bottom: 2px solid #e9ecef; padding-bottom: 8px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #dee2e6; font-size: 14px; }
+        th { background-color: #f8f9fa; color: #495057; }
+        .arrow-up { color: #dc3545; font-weight: bold; } /* Rojo para subidas o precios más caros */
+        .arrow-down { color: #28a745; font-weight: bold; } /* Verde para bajadas o más barato */
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .badge-info { background: #e3f2fd; color: #0d47a1; }
+        .footer { text-align: center; color: #6c757d; font-size: 12px; margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⛽ Monitor de Precios de Carburantes</h1>
+            <p>Provincia de Valencia | Datos: $fecha_datos | Emisión: $FECHA_HUMANA</p>
+        </div>
+
+        <!-- 1. Precios en Valencia -->
+        <div class="section">
+            <h2>1. Precios en Valencia ($val_total Estaciones)</h2>
+            <table>
+                <thead>
+                    <tr><th>Carburante</th><th>Precio Mínimo</th><th>Precio Medio</th><th>Precio Máximo</th></tr>
+                </thead>
+                <tbody>
+                    $(jq -r '
+                        "<tr><td><strong>Gasolina 95</strong></td><td>" + (.valencia.gasolina95.min | sprintf("%.3f")) + " €/L</td><td><strong>" + (.valencia.gasolina95.media | sprintf("%.3f")) + " €/L</strong></td><td>" + (.valencia.gasolina95.max | sprintf("%.3f")) + " €/L</td></tr>" +
+                        "<tr><td><strong>Diésel</strong></td><td>" + (.valencia.gasoleo.min | sprintf("%.3f")) + " €/L</td><td><strong>" + (.valencia.gasoleo.media | sprintf("%.3f")) + " €/L</strong></td><td>" + (.valencia.gasoleo.max | sprintf("%.3f")) + " €/L</td></tr>"
+                    ' "$JSON_RESUMEN")
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 2. Valencia frente a España -->
+        <div class="section">
+            <h2>2. Valencia frente a España ($esp_total Estaciones Nacionales)</h2>
+            <table>
+                <thead>
+                    <tr><th>Carburante</th><th>Media Valencia</th><th>Media España</th><th>Diferencia (€/L)</th><th>Diferencia (%)</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Gasolina 95</strong></td>
+                        <td>$(printf "%.3f" $v_g95_med) €/L</td>
+                        <td>$(printf "%.3f" $e_g95_med) €/L</td>
+                        <td>
+                            $(jq -r 'if .comparacion.gasolina95.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_eur | sprintf("%.3f")) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_eur | sprintf("%.3f")) + " €/L</span>" end' "$JSON_RESUMEN")
+                        </td>
+                        <td>
+                            $(jq -r 'if .comparacion.gasolina95.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_pct | sprintf("%.2f")) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_pct | sprintf("%.2f")) + "%</span>" end' "$JSON_RESUMEN")
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Diésel</strong></td>
+                        <td>$(printf "%.3f" $v_gas_med) €/L</td>
+                        <td>$(printf "%.3f" $e_gas_med) €/L</td>
+                        <td>
+                            $(jq -r 'if .comparacion.gasoleo.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_eur | sprintf("%.3f")) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_eur | sprintf("%.3f")) + " €/L</span>" end' "$JSON_RESUMEN")
+                        </td>
+                        <td>
+                            $(jq -r 'if .comparacion.gasoleo.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_pct | sprintf("%.2f")) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_pct | sprintf("%.2f")) + "%</span>" end' "$JSON_RESUMEN")
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 3. Evolución de la semana -->
+        <div class="section">
+            <h2>3. Evolución de la Semana</h2>
+            <table>
+                <thead>
+                    <tr><th>Fecha</th><th>Media Valencia (G95)</th><th>Media España (G95)</th><th>Media Valencia (Diésel)</th><th>Media España (Diésel)</th></tr>
+                </thead>
+                <tbody>
+                    $(jq -r '
+                        if (.evolucion_semanal | length) <= 1 then
+                            "<tr><td colspan=\"5\"><em>Se dispone de 1 día registrado. Se necesitan más ejecuciones diarias para trazar la tendencia.</em></td></tr>"
+                        else
+                            .evolucion_semanal[] | "<tr><td>" + .fecha + "</td><td>" + (.val_g95 | sprintf("%.3f")) + " €/L</td><td>" + (.esp_g95 | sprintf("%.3f")) + " €/L</td><td>" + (.val_gasoleo | sprintf("%.3f")) + " €/L</td><td>" + (.esp_gasoleo | sprintf("%.3f")) + " €/L</td></tr>"
+                        end
+                    ' "$JSON_RESUMEN")
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 4. Dónde repostar más barato -->
+        <div class="section">
+            <h2>4. Dónde Repostar más Barato en Valencia</h2>
+            <h3>Top 5 Gasolina 95</h3>
+            <table>
+                <thead><tr><th>Marca</th><th>Municipio</th><th>Dirección</th><th>Precio</th></tr></thead>
+                <tbody>
+                    $(jq -r '.top5_baratas.gasolina95[] | "<tr><td><strong>" + .rotulo + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | sprintf("%.3f")) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
+                </tbody>
+            </table>
+            <h3 style="margin-top:20px;">Top 5 Diésel</h3>
+            <table>
+                <thead><tr><th>Marca</th><th>Municipio</th><th>Dirección</th><th>Precio</th></tr></thead>
+                <tbody>
+                    $(jq -r '.top5_baratas.gasoleo[] | "<tr><td><strong>" + .rotulo + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | sprintf("%.3f")) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 5. Precio medio por marca -->
+        <div class="section">
+            <h2>5. Precio Medio por Marca en Valencia (&ge; 5 Estaciones)</h2>
+            <table>
+                <thead><tr><th>Marca</th><th>Estaciones</th><th>Media Gasolina 95</th><th>Media Diésel</th></tr></thead>
+                <tbody>
+                    $(jq -r '.marcas_medies_valencia[] | "<tr><td><strong>" + .marca + "</strong></td><td>" + (.total_estaciones | tostring) + "</td><td>" + (.media_g95 | sprintf("%.3f")) + " €/L</td><td>" + (.media_gasoleo | sprintf("%.3f")) + " €/L</td></tr>"' "$JSON_RESUMEN")
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 6. Nota sobre los datos -->
+        <div class="section">
+            <h2>6. Nota sobre los Datos y Calidad</h2>
+            <p><strong>Observaciones de origen:</strong> $calidad_nota</p>
+            <p><strong>Estaciones sin precio publicado en Valencia:</strong> $val_sin_precio</p>
+        </div>
+
+        <div class="footer">
+            Proyecto Shell Script - Máster en IA & Big Data | Módulo de Análisis e Informes (Álvaro)
+        </div>
+    </div>
+</body>
+</html>
+EOF
+
+    log_info "FIN: Informe HTML generado correctamente en $INFORME_HTML."
+    return 0
 }
 
 # ===== FIN PARTE ÁLVARO =====
