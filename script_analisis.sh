@@ -295,14 +295,14 @@ extraer() {
             },
             evolucion_semanal: $evol,
             top5_baratas: {
-                gasolina95: ([$valencia[] | select(.gasolina95 != null)] | sort_by(.gasolina95) | .[0:5] | map({rotulo, municipio, direccion, precio: .gasolina95})),
-                gasoleo: ([$valencia[] | select(.gasoleo != null)] | sort_by(.gasoleo) | .[0:5] | map({rotulo, municipio, direccion, precio: .gasoleo}))
+                gasolina95: ([$valencia[] | select(.gasolina95 != null)] | sort_by(.gasolina95) | .[0:5] | map({marca, municipio, direccion, precio: .gasolina95})),
+                gasoleo: ([$valencia[] | select(.gasoleo != null)] | sort_by(.gasoleo) | .[0:5] | map({marca, municipio, direccion, precio: .gasoleo}))
             },
             marcas_medies_valencia: (
                 $valencia 
-                | group_by(.rotulo) 
+                | group_by(.marca) 
                 | map(select(length >= 5) | {
-                    marca: .[0].rotulo,
+                    marca: .[0].marca,
                     total_estaciones: length,
                     media_g95: ([.[].gasolina95 | select(. != null)] | if length > 0 then (add/length) else 0 end),
                     media_gasoleo: ([.[].gasoleo | select(. != null)] | if length > 0 then (add/length) else 0 end)
@@ -389,7 +389,7 @@ Fecha de Datos: $fecha_datos | Fecha Emisión: $FECHA_HUMANA
 3. EVOLUCIÓN DE LA SEMANA
 --------------------------------------------------------------------------------
 $(jq -r '
-    def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end);
+    def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end);
     if (.evolucion_semanal | length) <= 1 then
         "   [!] Nota: Solo se dispone de 1 día registrado. Se requieren más datos para mostrar la tendencia semanal."
     else
@@ -400,14 +400,14 @@ $(jq -r '
 4. DÓNDE REPOSTAR MÁS BARATO EN VALENCIA
 --------------------------------------------------------------------------------
    TOP 5 GASOLINA 95:
-$(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasolina95[] | "   * \(.rotulo) (\(.municipio)) - \(.direccion): \(.precio | f(3)) €/L"' "$JSON_RESUMEN")
+$(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasolina95[] | "   * \(.marca) (\(.municipio)) - \(.direccion): \(.precio | f(3)) €/L"' "$JSON_RESUMEN")
 
    TOP 5 DIÉSEL:
-$(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasoleo[] | "   * \(.rotulo) (\(.municipio)) - \(.direccion): \(.precio | f(3)) €/L"' "$JSON_RESUMEN")
+$(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasoleo[] | "   * \(.marca) (\(.municipio)) - \(.direccion): \(.precio | f(3)) €/L"' "$JSON_RESUMEN")
 
 5. PRECIO MEDIO POR MARCA EN VALENCIA (mínimo 5 estaciones)
 --------------------------------------------------------------------------------
-$(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .marcas_medies_valencia[] | "   * \(.marca) (\(.total_estaciones) est.): G95: \(.media_g95 | f(3)) €/L | Diésel: \(.media_gasoleo | f(3)) €/L"' "$JSON_RESUMEN")
+$(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .marcas_medies_valencia[] | "   * \(.marca) (\(.total_estaciones) est.): G95: \(.media_g95 | f(3)) €/L | Diésel: \(.media_gasoleo | f(3)) €/L"' "$JSON_RESUMEN")
 
 6. NOTA SOBRE LOS DATOS Y CALIDAD
 --------------------------------------------------------------------------------
@@ -449,6 +449,16 @@ generar_informe_html() {
 
     local calidad_nota=$(jq -r '.calidad // "Sin observaciones de calidad"' "$JSON_RESUMEN")
 
+    # Datos serializados para los graficos Chart.js
+    local evolucion_json=$(jq -c '{
+        fechas:      [.evolucion_semanal[].fecha],
+        val_g95:     [.evolucion_semanal[].val_g95],
+        esp_g95:     [.evolucion_semanal[].esp_g95],
+        val_gasoleo: [.evolucion_semanal[].val_gasoleo],
+        esp_gasoleo: [.evolucion_semanal[].esp_gasoleo]
+    }' "$JSON_RESUMEN")
+    local marcas_json=$(jq -c '[.marcas_medies_valencia[] | {marca, media_g95, media_gasoleo}]' "$JSON_RESUMEN")
+
     cat <<EOF > "$INFORME_HTML"
 <!DOCTYPE html>
 <html lang="es">
@@ -456,41 +466,89 @@ generar_informe_html() {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Informe de Mercado de Carburantes - Valencia</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f4f6f9; color: #333; margin: 0; padding: 25px; }
-        .container { max-width: 950px; margin: 0 auto; }
-        .header { background: #0056b3; color: white; padding: 20px 25px; border-radius: 8px; margin-bottom: 20px; }
-        .header h1 { margin: 0; font-size: 24px; }
-        .header p { margin: 5px 0 0 0; opacity: 0.9; font-size: 14px; }
-        .section { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        .section h2 { margin-top: 0; font-size: 18px; color: #0056b3; border-bottom: 2px solid #e9ecef; padding-bottom: 8px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #dee2e6; font-size: 14px; }
-        th { background-color: #f8f9fa; color: #495057; }
-        .arrow-up { color: #dc3545; font-weight: bold; } /* Rojo para subidas o precios más caros */
-        .arrow-down { color: #28a745; font-weight: bold; } /* Verde para bajadas o más barato */
-        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
-        .badge-info { background: #e3f2fd; color: #0d47a1; }
-        .footer { text-align: center; color: #6c757d; font-size: 12px; margin-top: 30px; }
+        :root {
+            --navy: #1a365d;
+            --navy-light: #2c5282;
+            --bg: #f7fafc;
+            --card: #ffffff;
+            --text: #2d3748;
+            --text-muted: #718096;
+            --border: #e2e8f0;
+            --green: #38a169;
+            --red: #e53e3e;
+            --shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+
+        .navbar { position: sticky; top: 0; z-index: 100; background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%); color: white; padding: 16px 24px; box-shadow: var(--shadow); }
+        .navbar-content { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+        .navbar h1 { font-size: 20px; font-weight: 700; }
+        .navbar .dates { font-size: 13px; opacity: 0.92; text-align: right; line-height: 1.5; }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .kpi { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 20px; text-align: center; border-top: 4px solid var(--navy-light); }
+        .kpi .value { font-size: 26px; font-weight: 700; color: var(--navy); }
+        .kpi .label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+
+        .card { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 24px; border: 1px solid var(--border); margin-bottom: 20px; }
+        .card h2 { font-size: 16px; color: var(--navy); margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid var(--border); }
+        .card h3 { font-size: 14px; color: var(--navy-light); margin: 16px 0 8px; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { background: #edf2f7; color: var(--navy); font-weight: 600; text-align: left; padding: 10px 12px; }
+        td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+        tbody tr { transition: background 0.2s ease; }
+        tbody tr:hover { background: #ebf4ff; }
+
+        .arrow-up { color: var(--red); font-weight: 700; }
+        .arrow-down { color: var(--green); font-weight: 700; }
+
+        .chart-container { position: relative; height: 320px; margin-top: 16px; }
+
+        .footer { text-align: center; color: var(--text-muted); font-size: 12px; padding: 24px; }
+
+        @media (max-width: 768px) {
+            .navbar-content { flex-direction: column; text-align: center; }
+            .navbar .dates { text-align: center; }
+            .chart-container { height: 260px; }
+            .kpi .value { font-size: 22px; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
+    <nav class="navbar">
+        <div class="navbar-content">
             <h1>⛽ Monitor de Precios de Carburantes</h1>
-            <p>Provincia de Valencia | Datos: $fecha_datos | Emisión: $FECHA_HUMANA</p>
+            <div class="dates">
+                <div>Provincia de Valencia</div>
+                <div>Datos: $fecha_datos | Emisión: $FECHA_HUMANA</div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="kpi-grid">
+            <div class="kpi"><div class="value">$val_total</div><div class="label">Estaciones Valencia</div></div>
+            <div class="kpi"><div class="value">$(printf "%.3f" $v_g95_med)</div><div class="label">Media G95 Valencia (€/L)</div></div>
+            <div class="kpi"><div class="value">$(printf "%.3f" $v_gas_med)</div><div class="label">Media Diésel Valencia (€/L)</div></div>
+            <div class="kpi"><div class="value">$esp_total</div><div class="label">Estaciones España</div></div>
         </div>
 
         <!-- 1. Precios en Valencia -->
-        <div class="section">
-            <h2>1. Precios en Valencia ($val_total Estaciones)</h2>
+        <div class="card">
+            <h2>1. Precios en Valencia</h2>
             <table>
                 <thead>
                     <tr><th>Carburante</th><th>Precio Mínimo</th><th>Precio Medio</th><th>Precio Máximo</th></tr>
                 </thead>
                 <tbody>
                     $(jq -r '
-                        def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end);
+                        def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end);
                         "<tr><td><strong>Gasolina 95</strong></td><td>" + (.valencia.gasolina95.min | f(3)) + " €/L</td><td><strong>" + (.valencia.gasolina95.media | f(3)) + " €/L</strong></td><td>" + (.valencia.gasolina95.max | f(3)) + " €/L</td></tr>" +
                         "<tr><td><strong>Diésel</strong></td><td>" + (.valencia.gasoleo.min | f(3)) + " €/L</td><td><strong>" + (.valencia.gasoleo.media | f(3)) + " €/L</strong></td><td>" + (.valencia.gasoleo.max | f(3)) + " €/L</td></tr>"
                     ' "$JSON_RESUMEN")
@@ -499,8 +557,8 @@ generar_informe_html() {
         </div>
 
         <!-- 2. Valencia frente a España -->
-        <div class="section">
-            <h2>2. Valencia frente a España ($esp_total Estaciones Nacionales)</h2>
+        <div class="card">
+            <h2>2. Valencia frente a España</h2>
             <table>
                 <thead>
                     <tr><th>Carburante</th><th>Media Valencia</th><th>Media España</th><th>Diferencia (€/L)</th><th>Diferencia (%)</th></tr>
@@ -511,10 +569,10 @@ generar_informe_html() {
                         <td>$(printf "%.3f" $v_g95_med) €/L</td>
                         <td>$(printf "%.3f" $e_g95_med) €/L</td>
                         <td>
-                            $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasolina95.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_eur | f(3)) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_eur | f(3)) + " €/L</span>" end' "$JSON_RESUMEN")
+                            $(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasolina95.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_eur | f(3)) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_eur | f(3)) + " €/L</span>" end' "$JSON_RESUMEN")
                         </td>
                         <td>
-                            $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasolina95.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_pct | f(2)) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_pct | f(2)) + "%</span>" end' "$JSON_RESUMEN")
+                            $(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasolina95.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_pct | f(2)) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_pct | f(2)) + "%</span>" end' "$JSON_RESUMEN")
                         </td>
                     </tr>
                     <tr>
@@ -522,68 +580,55 @@ generar_informe_html() {
                         <td>$(printf "%.3f" $v_gas_med) €/L</td>
                         <td>$(printf "%.3f" $e_gas_med) €/L</td>
                         <td>
-                            $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasoleo.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_eur | f(3)) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_eur | f(3)) + " €/L</span>" end' "$JSON_RESUMEN")
+                            $(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasoleo.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_eur | f(3)) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_eur | f(3)) + " €/L</span>" end' "$JSON_RESUMEN")
                         </td>
                         <td>
-                            $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasoleo.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_pct | f(2)) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_pct | f(2)) + "%</span>" end' "$JSON_RESUMEN")
+                            $(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasoleo.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_pct | f(2)) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_pct | f(2)) + "%</span>" end' "$JSON_RESUMEN")
                         </td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
-        <!-- 3. Evolución de la semana -->
-        <div class="section">
-            <h2>3. Evolución de la Semana</h2>
-            <table>
-                <thead>
-                    <tr><th>Fecha</th><th>Media Valencia (G95)</th><th>Media España (G95)</th><th>Media Valencia (Diésel)</th><th>Media España (Diésel)</th></tr>
-                </thead>
-                <tbody>
-                    $(jq -r '
-                        def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end);
-                        if (.evolucion_semanal | length) <= 1 then
-                            "<tr><td colspan=\"5\"><em>Se dispone de 1 día registrado. Se necesitan más ejecuciones diarias para trazar la tendencia.</em></td></tr>"
-                        else
-                            .evolucion_semanal[] | "<tr><td>" + .fecha + "</td><td>" + (.val_g95 | f(3)) + " €/L</td><td>" + (.esp_g95 | f(3)) + " €/L</td><td>" + (.val_gasoleo | f(3)) + " €/L</td><td>" + (.esp_gasoleo | f(3)) + " €/L</td></tr>"
-                        end
-                    ' "$JSON_RESUMEN")
-                </tbody>
-            </table>
+        <!-- 3. Evolución semanal con gráfico interactivo -->
+        <div class="card">
+            <h2>3. Evolución Semanal: Valencia vs España</h2>
+            <div class="chart-container"><canvas id="evolucionChart"></canvas></div>
         </div>
 
         <!-- 4. Dónde repostar más barato -->
-        <div class="section">
+        <div class="card">
             <h2>4. Dónde Repostar más Barato en Valencia</h2>
             <h3>Top 5 Gasolina 95</h3>
             <table>
                 <thead><tr><th>Marca</th><th>Municipio</th><th>Dirección</th><th>Precio</th></tr></thead>
                 <tbody>
-                    $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasolina95[] | "<tr><td><strong>" + .rotulo + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | f(3)) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
+                    $(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasolina95[] | "<tr><td><strong>" + .marca + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | f(3)) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
                 </tbody>
             </table>
-            <h3 style="margin-top:20px;">Top 5 Diésel</h3>
+            <h3>Top 5 Diésel</h3>
             <table>
                 <thead><tr><th>Marca</th><th>Municipio</th><th>Dirección</th><th>Precio</th></tr></thead>
                 <tbody>
-                    $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasoleo[] | "<tr><td><strong>" + .rotulo + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | f(3)) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
+                    $(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasoleo[] | "<tr><td><strong>" + .marca + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | f(3)) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
                 </tbody>
             </table>
         </div>
 
-        <!-- 5. Precio medio por marca -->
-        <div class="section">
+        <!-- 5. Precio medio por marca con gráfico interactivo -->
+        <div class="card">
             <h2>5. Precio Medio por Marca en Valencia (&ge; 5 Estaciones)</h2>
+            <div class="chart-container"><canvas id="marcasChart"></canvas></div>
             <table>
                 <thead><tr><th>Marca</th><th>Estaciones</th><th>Media Gasolina 95</th><th>Media Diésel</th></tr></thead>
                 <tbody>
-                    $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .marcas_medies_valencia[] | "<tr><td><strong>" + .marca + "</strong></td><td>" + (.total_estaciones | tostring) + "</td><td>" + (.media_g95 | f(3)) + " €/L</td><td>" + (.media_gasoleo | f(3)) + " €/L</td></tr>"' "$JSON_RESUMEN")
+                    $(jq -r 'def f($n): ((. * (pow(10; $n)) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .marcas_medies_valencia[] | "<tr><td><strong>" + .marca + "</strong></td><td>" + (.total_estaciones | tostring) + "</td><td>" + (.media_g95 | f(3)) + " €/L</td><td>" + (.media_gasoleo | f(3)) + " €/L</td></tr>"' "$JSON_RESUMEN")
                 </tbody>
             </table>
         </div>
 
         <!-- 6. Nota sobre los datos -->
-        <div class="section">
+        <div class="card">
             <h2>6. Nota sobre los Datos y Calidad</h2>
             <p><strong>Observaciones de origen:</strong> $calidad_nota</p>
             <p><strong>Estaciones sin precio publicado en Valencia:</strong> $val_sin_precio</p>
@@ -593,6 +638,48 @@ generar_informe_html() {
             Proyecto Shell Script - Máster en IA & Big Data | Módulo de Análisis e Informes (Álvaro)
         </div>
     </div>
+
+    <script>
+        var evolucionData = $evolucion_json;
+        var marcasData = $marcas_json;
+
+        new Chart(document.getElementById('evolucionChart'), {
+            type: 'line',
+            data: {
+                labels: evolucionData.fechas,
+                datasets: [
+                    { label: 'Valencia G95', data: evolucionData.val_g95, borderColor: '#2c5282', backgroundColor: 'rgba(44,82,130,0.12)', fill: true, tension: 0.3, pointRadius: 4 },
+                    { label: 'España G95', data: evolucionData.esp_g95, borderColor: '#e53e3e', backgroundColor: 'rgba(229,62,62,0.10)', fill: true, tension: 0.3, pointRadius: 4 },
+                    { label: 'Valencia Diésel', data: evolucionData.val_gasoleo, borderColor: '#38a169', backgroundColor: 'rgba(56,161,105,0.12)', fill: true, tension: 0.3, pointRadius: 4 },
+                    { label: 'España Diésel', data: evolucionData.esp_gasoleo, borderColor: '#d69e2e', backgroundColor: 'rgba(214,158,46,0.10)', fill: true, tension: 0.3, pointRadius: 4 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 16 } } },
+                scales: { y: { title: { display: true, text: '€/L' }, beginAtZero: false } }
+            }
+        });
+
+        new Chart(document.getElementById('marcasChart'), {
+            type: 'bar',
+            data: {
+                labels: marcasData.map(function(m) { return m.marca; }),
+                datasets: [
+                    { label: 'Gasolina 95', data: marcasData.map(function(m) { return m.media_g95; }), backgroundColor: '#2c5282', borderRadius: 4 },
+                    { label: 'Diésel', data: marcasData.map(function(m) { return m.media_gasoleo; }), backgroundColor: '#38a169', borderRadius: 4 }
+                ]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 16 } } },
+                scales: { x: { title: { display: true, text: '€/L' } } }
+            }
+        });
+    </script>
 </body>
 </html>
 EOF
