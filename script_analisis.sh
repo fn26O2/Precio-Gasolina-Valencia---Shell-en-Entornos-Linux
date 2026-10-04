@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # --- Entorno fijo (porque cron no carga el de la terminal) ---
-export PATH="/usr/local/bin:/usr/bin:/bin"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 export LC_ALL=C.UTF-8
 
 # --- Rutas (siempre relativas a la carpeta del proyecto) ---
@@ -14,7 +14,7 @@ ERR_FILE="$BASE_DIR/errores.log"
 
 # --- Fecha de la ejecución ---
 HOY="$(date +%Y%m%d)"
-
+FECHA_HUMANA="$(date '+%d/%m/%Y %H:%M:%S')"
 # --- Dataset ---
 #URL_CARBURANTES="https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/"
 URL_CARBURANTES="${URL_CARBURANTES:-https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/}"
@@ -65,6 +65,7 @@ descargar() {
         --connect-timeout 15 \
         --max-time "$TIMEOUT_DESCARGA" \
         -H "Accept: application/json" \
+        -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" \
         -o "$tmp" \
         "$URL_CARBURANTES" || codigo_curl=$?
 
@@ -79,7 +80,6 @@ descargar() {
         rm -f "$tmp"
         return 1
     fi
-
     log_info "Descarga completada"
 }
 
@@ -389,24 +389,25 @@ Fecha de Datos: $fecha_datos | Fecha Emisión: $FECHA_HUMANA
 3. EVOLUCIÓN DE LA SEMANA
 --------------------------------------------------------------------------------
 $(jq -r '
+    def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end);
     if (.evolucion_semanal | length) <= 1 then
         "   [!] Nota: Solo se dispone de 1 día registrado. Se requieren más datos para mostrar la tendencia semanal."
     else
-        .evolucion_semanal[] | "   - Fecha: \(.fecha) | Val G95: \(.val_g95 | if . then (sprintf("%.3f"; .)) else "N/A" end) €/L | Val Diésel: \(.val_gasoleo | if . then (sprintf("%.3f"; .)) else "N/A" end) €/L"
+        .evolucion_semanal[] | "   - Fecha: \(.fecha) | Val G95: \(.val_g95 | if . then (f(3)) else "N/A" end) €/L | Val Diésel: \(.val_gasoleo | if . then (f(3)) else "N/A" end) €/L"
     end
 ' "$JSON_RESUMEN")
 
 4. DÓNDE REPOSTAR MÁS BARATO EN VALENCIA
 --------------------------------------------------------------------------------
    TOP 5 GASOLINA 95:
-$(jq -r '.top5_baratas.gasolina95[] | "   * \(.rotulo) (\(.municipio)) - \(.direccion): \(.precio | sprintf("%.3f")) €/L"' "$JSON_RESUMEN")
+$(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasolina95[] | "   * \(.rotulo) (\(.municipio)) - \(.direccion): \(.precio | f(3)) €/L"' "$JSON_RESUMEN")
 
    TOP 5 DIÉSEL:
-$(jq -r '.top5_baratas.gasoleo[] | "   * \(.rotulo) (\(.municipio)) - \(.direccion): \(.precio | sprintf("%.3f")) €/L"' "$JSON_RESUMEN")
+$(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasoleo[] | "   * \(.rotulo) (\(.municipio)) - \(.direccion): \(.precio | f(3)) €/L"' "$JSON_RESUMEN")
 
 5. PRECIO MEDIO POR MARCA EN VALENCIA (mínimo 5 estaciones)
 --------------------------------------------------------------------------------
-$(jq -r '.marcas_medies_valencia[] | "   * \(.marca) (\(.total_estaciones) est.): G95: \(.media_g95 | sprintf("%.3f")) €/L | Diésel: \(.media_gasoleo | sprintf("%.3f")) €/L"' "$JSON_RESUMEN")
+$(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .marcas_medies_valencia[] | "   * \(.marca) (\(.total_estaciones) est.): G95: \(.media_g95 | f(3)) €/L | Diésel: \(.media_gasoleo | f(3)) €/L"' "$JSON_RESUMEN")
 
 6. NOTA SOBRE LOS DATOS Y CALIDAD
 --------------------------------------------------------------------------------
@@ -489,8 +490,9 @@ generar_informe_html() {
                 </thead>
                 <tbody>
                     $(jq -r '
-                        "<tr><td><strong>Gasolina 95</strong></td><td>" + (.valencia.gasolina95.min | sprintf("%.3f")) + " €/L</td><td><strong>" + (.valencia.gasolina95.media | sprintf("%.3f")) + " €/L</strong></td><td>" + (.valencia.gasolina95.max | sprintf("%.3f")) + " €/L</td></tr>" +
-                        "<tr><td><strong>Diésel</strong></td><td>" + (.valencia.gasoleo.min | sprintf("%.3f")) + " €/L</td><td><strong>" + (.valencia.gasoleo.media | sprintf("%.3f")) + " €/L</strong></td><td>" + (.valencia.gasoleo.max | sprintf("%.3f")) + " €/L</td></tr>"
+                        def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end);
+                        "<tr><td><strong>Gasolina 95</strong></td><td>" + (.valencia.gasolina95.min | f(3)) + " €/L</td><td><strong>" + (.valencia.gasolina95.media | f(3)) + " €/L</strong></td><td>" + (.valencia.gasolina95.max | f(3)) + " €/L</td></tr>" +
+                        "<tr><td><strong>Diésel</strong></td><td>" + (.valencia.gasoleo.min | f(3)) + " €/L</td><td><strong>" + (.valencia.gasoleo.media | f(3)) + " €/L</strong></td><td>" + (.valencia.gasoleo.max | f(3)) + " €/L</td></tr>"
                     ' "$JSON_RESUMEN")
                 </tbody>
             </table>
@@ -509,10 +511,10 @@ generar_informe_html() {
                         <td>$(printf "%.3f" $v_g95_med) €/L</td>
                         <td>$(printf "%.3f" $e_g95_med) €/L</td>
                         <td>
-                            $(jq -r 'if .comparacion.gasolina95.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_eur | sprintf("%.3f")) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_eur | sprintf("%.3f")) + " €/L</span>" end' "$JSON_RESUMEN")
+                            $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasolina95.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_eur | f(3)) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_eur | f(3)) + " €/L</span>" end' "$JSON_RESUMEN")
                         </td>
                         <td>
-                            $(jq -r 'if .comparacion.gasolina95.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_pct | sprintf("%.2f")) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_pct | sprintf("%.2f")) + "%</span>" end' "$JSON_RESUMEN")
+                            $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasolina95.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasolina95.diff_pct | f(2)) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasolina95.diff_pct | f(2)) + "%</span>" end' "$JSON_RESUMEN")
                         </td>
                     </tr>
                     <tr>
@@ -520,10 +522,10 @@ generar_informe_html() {
                         <td>$(printf "%.3f" $v_gas_med) €/L</td>
                         <td>$(printf "%.3f" $e_gas_med) €/L</td>
                         <td>
-                            $(jq -r 'if .comparacion.gasoleo.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_eur | sprintf("%.3f")) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_eur | sprintf("%.3f")) + " €/L</span>" end' "$JSON_RESUMEN")
+                            $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasoleo.diff_eur > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_eur | f(3)) + " €/L</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_eur | f(3)) + " €/L</span>" end' "$JSON_RESUMEN")
                         </td>
                         <td>
-                            $(jq -r 'if .comparacion.gasoleo.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_pct | sprintf("%.2f")) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_pct | sprintf("%.2f")) + "%</span>" end' "$JSON_RESUMEN")
+                            $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); if .comparacion.gasoleo.diff_pct > 0 then "<span class=\"arrow-up\">↑ +" + (.comparacion.gasoleo.diff_pct | f(2)) + "%</span>" else "<span class=\"arrow-down\">↓ " + (.comparacion.gasoleo.diff_pct | f(2)) + "%</span>" end' "$JSON_RESUMEN")
                         </td>
                     </tr>
                 </tbody>
@@ -539,10 +541,11 @@ generar_informe_html() {
                 </thead>
                 <tbody>
                     $(jq -r '
+                        def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end);
                         if (.evolucion_semanal | length) <= 1 then
                             "<tr><td colspan=\"5\"><em>Se dispone de 1 día registrado. Se necesitan más ejecuciones diarias para trazar la tendencia.</em></td></tr>"
                         else
-                            .evolucion_semanal[] | "<tr><td>" + .fecha + "</td><td>" + (.val_g95 | sprintf("%.3f")) + " €/L</td><td>" + (.esp_g95 | sprintf("%.3f")) + " €/L</td><td>" + (.val_gasoleo | sprintf("%.3f")) + " €/L</td><td>" + (.esp_gasoleo | sprintf("%.3f")) + " €/L</td></tr>"
+                            .evolucion_semanal[] | "<tr><td>" + .fecha + "</td><td>" + (.val_g95 | f(3)) + " €/L</td><td>" + (.esp_g95 | f(3)) + " €/L</td><td>" + (.val_gasoleo | f(3)) + " €/L</td><td>" + (.esp_gasoleo | f(3)) + " €/L</td></tr>"
                         end
                     ' "$JSON_RESUMEN")
                 </tbody>
@@ -556,14 +559,14 @@ generar_informe_html() {
             <table>
                 <thead><tr><th>Marca</th><th>Municipio</th><th>Dirección</th><th>Precio</th></tr></thead>
                 <tbody>
-                    $(jq -r '.top5_baratas.gasolina95[] | "<tr><td><strong>" + .rotulo + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | sprintf("%.3f")) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
+                    $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasolina95[] | "<tr><td><strong>" + .rotulo + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | f(3)) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
                 </tbody>
             </table>
             <h3 style="margin-top:20px;">Top 5 Diésel</h3>
             <table>
                 <thead><tr><th>Marca</th><th>Municipio</th><th>Dirección</th><th>Precio</th></tr></thead>
                 <tbody>
-                    $(jq -r '.top5_baratas.gasoleo[] | "<tr><td><strong>" + .rotulo + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | sprintf("%.3f")) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
+                    $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .top5_baratas.gasoleo[] | "<tr><td><strong>" + .rotulo + "</strong></td><td>" + .municipio + "</td><td>" + .direccion + "</td><td><span class=\"arrow-down\">" + (.precio | f(3)) + " €/L</span></td></tr>"' "$JSON_RESUMEN")
                 </tbody>
             </table>
         </div>
@@ -574,7 +577,7 @@ generar_informe_html() {
             <table>
                 <thead><tr><th>Marca</th><th>Estaciones</th><th>Media Gasolina 95</th><th>Media Diésel</th></tr></thead>
                 <tbody>
-                    $(jq -r '.marcas_medies_valencia[] | "<tr><td><strong>" + .marca + "</strong></td><td>" + (.total_estaciones | tostring) + "</td><td>" + (.media_g95 | sprintf("%.3f")) + " €/L</td><td>" + (.media_gasoleo | sprintf("%.3f")) + " €/L</td></tr>"' "$JSON_RESUMEN")
+                    $(jq -r 'def f($n): ((. * (10*$n) | floor) | tostring) as $s | ($s | ltrimstr("-")) as $a | ($a | length) as $l | (if ($s | startswith("-")) then "-" else "" end) + (if $l <= $n then "0." + ("0" * ($n - $l)) + $a else $a[0:($l-$n)] + "." + $a[$l-$n:] end); .marcas_medies_valencia[] | "<tr><td><strong>" + .marca + "</strong></td><td>" + (.total_estaciones | tostring) + "</td><td>" + (.media_g95 | f(3)) + " €/L</td><td>" + (.media_gasoleo | f(3)) + " €/L</td></tr>"' "$JSON_RESUMEN")
                 </tbody>
             </table>
         </div>
