@@ -21,4 +21,4 @@
 # For more information see the manual pages of crontab(5) and cron(8)
 # 
 # m h  dom mon dow   command
-   15 9 * * * /home/pablo/proyectos/Precio-Gasolina-Valencia---Shell-en-Entornos-Linux/script_analisis.sh >> /home/pablo/proyectos/Precio-Gasolina-Valencia---Shell-en-Entornos-Linux/cron.log 2>&1
+15 9 * * * /home/pablo/proyectos/Precio-Gasolina-Valencia---Shell-en-Entornos-Linux/script_analisis_json.sh
